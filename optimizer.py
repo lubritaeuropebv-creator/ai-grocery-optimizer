@@ -1,43 +1,40 @@
-import itertools
-from core.matcher import match_ingredient
+import os
+import json
+import google.generativeai as genai
+from core.models import Recipe
 
-def compute_cart(ingredients, products):
-    total = 0
-    cart = []
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-    for ing in ingredients:
-        product = match_ingredient(ing.name, products)
-        if not product:
-            return None
+model = genai.GenerativeModel(
+    model_name="gemini-1.5-flash"
+)
 
-        cart.append({
-            "ingredient": ing.name,
-            "product": product.name,
-            "shop": product.shop,
-            "price": product.price
-        })
-        total += product.price
+def generate_recipe(dish: str, persons: int) -> Recipe:
+    prompt = f"""
+    Create a cooking recipe for {persons} people.
 
-    return total, cart
+    Dish: {dish}
 
+    Respond ONLY with valid JSON:
+    {{
+      "title": "",
+      "servings": {persons},
+      "ingredients": [
+        {{
+          "name": "",
+          "quantity": 0,
+          "unit": ""
+        }}
+      ]
+    }}
+    """
 
-def best_carts(ingredients, shop_products: dict):
-    results = {}
+    response = model.generate_content(
+        prompt,
+        generation_config={
+            "temperature": 0.2,
+            "response_mime_type": "application/json"
+        }
+    )
 
-    shops = list(shop_products.keys())
-
-    for k in [1, 2, 3]:
-        best = None
-
-        for combo in itertools.combinations(shops, k):
-            merged = []
-            for s in combo:
-                merged.extend(shop_products[s])
-
-            cart = compute_cart(ingredients, merged)
-            if cart and (best is None or cart[0] < best[0]):
-                best = (*cart, combo)
-
-        results[f"{k}_shop"] = best
-
-    return results
+    return Recipe.model_validate(json.loads(response.text))
